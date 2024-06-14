@@ -321,7 +321,7 @@ class Attention(nn.Module):
                 xk.permute(0, 2, 1, 3),
                 xv.permute(0, 2, 1, 3),
                 attn_mask=x_mask.bool().view(bsz, 1, 1, seqlen).expand(-1, self.n_local_heads, seqlen, -1),
-                scale=softmax_scale,
+                # scale=softmax_scale,
             )
             .permute(0, 2, 1, 3)
             .to(dtype)
