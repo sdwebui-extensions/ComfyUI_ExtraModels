@@ -101,6 +101,7 @@ class NextDiTInfer:
 			tokenizer.padding_side = "right"
 		if text_encoder is None:
 			text_encoder = AutoModel.from_pretrained(llm_folder, torch_dtype=model_type, device_map=load_device)
+		text_encoder.to(model_dtype)
 		cap_feats, cap_mask = encode_prompt([positive]+[negative], text_encoder, tokenizer, 0)
 		if not keep_model_on:
 			text_encoder = None
@@ -121,6 +122,7 @@ class NextDiTInfer:
 			model_name = ckpt_path
 			nextdit.load_state_dict(state_dict)
 			nextdit.to(load_device).to(model_type)
+		nextdit.to(model_dtype)
 		model_kwargs = dict(
 			cap_feats=cap_feats,
 			cap_mask=cap_mask,
