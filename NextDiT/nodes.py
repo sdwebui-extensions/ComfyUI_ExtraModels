@@ -70,6 +70,7 @@ class NextDiTInfer:
 				"scaling_watershed": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0}),
 				"proportional_attn": ("BOOLEAN", {"default": True}),
 				"keep_model_on": ("BOOLEAN", {"default": False}),
+				"model_dtype": (["bf16", "float32", "float16"], ),
 				"positive": ("STRING", {"multiline": True, "dynamicPrompts": True}),
 				"negative": ("STRING", {"multiline": True, "dynamicPrompts": True}),
 			}
@@ -80,8 +81,14 @@ class NextDiTInfer:
 	CATEGORY = "ExtraModels/NextDiT"
 	TITLE = "NextDiT Text to Image"
 
-	def load_checkpoint(self, ckpt_name, llm_name, height, width, seed, steps, cfg, time_shift, solver, scaling_method, scaling_watershed, proportional_attn, keep_model_on, positive, negative):
+	def load_checkpoint(self, ckpt_name, llm_name, height, width, seed, steps, cfg, time_shift, solver, scaling_method, scaling_watershed, proportional_attn, keep_model_on, model_dtype, positive, negative):
 		model_type = comfy.model_management.unet_dtype()
+		if model_dtype == 'bf16':
+			model_dtype = torch.bfloat16
+		elif model_dtype == 'float16':
+			model_dtype = torch.float16
+		else:
+			model_dtype = torch.float32
 		load_device = comfy.model_management.get_torch_device()
 		offload_device = comfy.model_management.unet_offload_device()
 
@@ -157,12 +164,12 @@ class NextDiTInfer:
 			z = torch.randn([1, 4, height // 8, width // 8], device=load_device).to(model_type)
 			z = z.repeat(2, 1, 1, 1)
 			samples = sample_fn(z, nextdit.forward_with_cfg, **model_kwargs)[-1]
-		samples = samples[:1]
+		samples = samples[:1] / 0.13025
 		if not keep_model_on:
 			nextdit = None
 			comfy.model_management.get_free_memory()
 
-		return (samples,)
+		return ({"samples":samples},)
 
 NODE_CLASS_MAPPINGS = {
 	"NextDiTInfer" : NextDiTInfer,
