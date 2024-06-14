@@ -72,7 +72,7 @@ class NextDiTInfer:
 				"scaling_watershed": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 1.0}),
 				"proportional_attn": ("BOOLEAN", {"default": True}),
 				"keep_model_on": ("BOOLEAN", {"default": False}),
-				"model_dtype": (["bf16", "float32", "float16"], ),
+				"model_type": (["bf16", "float32", "float16"], ),
 				"positive": ("STRING", {"multiline": True, "dynamicPrompts": True}),
 				"negative": ("STRING", {"multiline": True, "dynamicPrompts": True}),
 			}
