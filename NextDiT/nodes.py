@@ -101,11 +101,7 @@ class NextDiTInfer:
 			tokenizer.padding_side = "right"
 		if text_encoder is None:
 			text_encoder = AutoModel.from_pretrained(llm_folder, torch_dtype=model_type, device_map=load_device)
-		text_encoder.to(model_dtype)
 		cap_feats, cap_mask = encode_prompt([positive]+[negative], text_encoder, tokenizer, 0)
-		if not keep_model_on:
-			text_encoder = None
-			comfy.model_management.get_free_memory()
 		ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
 		global nextdit, model_name
 		if nextdit is None:
@@ -124,8 +120,8 @@ class NextDiTInfer:
 			nextdit.to(load_device).to(model_type)
 		nextdit.to(model_dtype)
 		model_kwargs = dict(
-			cap_feats=cap_feats,
-			cap_mask=cap_mask,
+			cap_feats=cap_feats.to(model_dtype),
+			cap_mask=cap_mask.to(model_dtype),
 			cfg_scale=cfg,
 		)
 		if proportional_attn:
@@ -169,6 +165,7 @@ class NextDiTInfer:
 		samples = samples[:1] / 0.13025
 		if not keep_model_on:
 			nextdit = None
+			text_encoder = None
 			comfy.model_management.get_free_memory()
 
 		return ({"samples":samples},)
