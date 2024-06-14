@@ -22,6 +22,8 @@ model_name = None
 tokenizer = None
 text_encoder = None
 
+ori_model_type = None
+
 def encode_prompt(prompt_batch, text_encoder, tokenizer, proportion_empty_prompts):
     captions = []
     for caption in prompt_batch:
@@ -81,30 +83,28 @@ class NextDiTInfer:
 	CATEGORY = "ExtraModels/NextDiT"
 	TITLE = "NextDiT Text to Image"
 
-	def load_checkpoint(self, ckpt_name, llm_name, height, width, seed, steps, cfg, time_shift, solver, scaling_method, scaling_watershed, proportional_attn, keep_model_on, model_dtype, positive, negative):
-		model_type = comfy.model_management.unet_dtype()
-		if model_dtype == 'bf16':
-			model_dtype = torch.bfloat16
-		elif model_dtype == 'float16':
-			model_dtype = torch.float16
+	def load_checkpoint(self, ckpt_name, llm_name, height, width, seed, steps, cfg, time_shift, solver, scaling_method, scaling_watershed, proportional_attn, keep_model_on, model_type, positive, negative):
+		if model_type == 'bf16':
+			model_type = torch.bfloat16
+		elif model_type == 'float16':
+			model_type = torch.float16
 		else:
-			model_dtype = torch.float32
+			model_type = torch.float32
 		load_device = comfy.model_management.get_torch_device()
-		offload_device = comfy.model_management.unet_offload_device()
 
 		clip_path = folder_paths.get_full_path("clip", llm_name)
 		llm_folder = os.path.dirname(clip_path)
-		global tokenizer, text_encoder
+		global tokenizer, text_encoder, ori_model_type
 		from transformers import AutoModel, AutoTokenizer
 		if tokenizer is None:
 			tokenizer = AutoTokenizer.from_pretrained(llm_folder)
 			tokenizer.padding_side = "right"
-		if text_encoder is None:
+		if text_encoder is None or ori_model_type != model_type:
 			text_encoder = AutoModel.from_pretrained(llm_folder, torch_dtype=model_type, device_map=load_device)
 		cap_feats, cap_mask = encode_prompt([positive]+[negative], text_encoder, tokenizer, 0)
 		ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
 		global nextdit, model_name
-		if nextdit is None:
+		if nextdit is None or ori_model_type != model_type:
 			nextdit = NextDiT(
 				patch_size=2, 
 				dim=2304, 
@@ -118,10 +118,10 @@ class NextDiTInfer:
 			model_name = ckpt_path
 			nextdit.load_state_dict(state_dict)
 			nextdit.to(load_device).to(model_type)
-		nextdit.to(model_dtype)
+		nextdit.to(model_type)
 		model_kwargs = dict(
-			cap_feats=cap_feats.to(model_dtype),
-			cap_mask=cap_mask.to(model_dtype),
+			cap_feats=cap_feats.to(model_type),
+			cap_mask=cap_mask.to(model_type),
 			cfg_scale=cfg,
 		)
 		if proportional_attn:
@@ -167,6 +167,7 @@ class NextDiTInfer:
 			nextdit = None
 			text_encoder = None
 			comfy.model_management.get_free_memory()
+		ori_model_type = model_type
 
 		return ({"samples":samples},)
 
