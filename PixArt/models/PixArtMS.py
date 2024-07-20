@@ -98,7 +98,8 @@ class PixArtMS(PixArt):
             pred_sigma=True,
             drop_path: float = 0.,
             caption_channels=4096,
-            pe_interpolation=1.,
+            pe_interpolation=None,
+            pe_precision=None,
             config=None,
             model_max_length=120,
             micro_condition=True,
@@ -168,13 +169,19 @@ class PixArtMS(PixArt):
         x = x.to(self.dtype)
         timestep = t.to(self.dtype)
         y = y.to(self.dtype)
+        
+        pe_interpolation = self.pe_interpolation
+        if pe_interpolation is None or self.pe_precision is not None:
+            # calculate pe_interpolation on-the-fly
+            pe_interpolation = round((x.shape[-1]+x.shape[-2])/2.0 / (512/8.0), self.pe_precision or 0)
+
         self.h, self.w = x.shape[-2]//self.patch_size, x.shape[-1]//self.patch_size
         pos_embed = torch.from_numpy(
             get_2d_sincos_pos_embed(
-                self.pos_embed.shape[-1], (self.h, self.w), pe_interpolation=self.pe_interpolation,
+                self.pos_embed.shape[-1], (self.h, self.w), pe_interpolation=pe_interpolation,
                 base_size=self.base_size
             )
-        ).unsqueeze(0).to(x.device).to(self.dtype)
+        ).unsqueeze(0).to(device=x.device, dtype=self.dtype)
 
         x = self.x_embedder(x) + pos_embed  # (N, T, D), where T = H * W / patch_size ** 2
         t = self.t_embedder(timestep)  # (N, D)
@@ -224,7 +231,7 @@ class PixArtMS(PixArt):
                 device=x.device
             ).repeat(bs, 1)
         else:
-            data_info["img_hw"] = img_hw.to(x.dtype).to(x.device)
+            data_info["img_hw"] = img_hw.to(dtype=x.dtype, device=x.device)
         if aspect_ratio is None or True:
             data_info["aspect_ratio"] = torch.tensor(
                 [[x.shape[2]/x.shape[3]]],
@@ -232,7 +239,7 @@ class PixArtMS(PixArt):
                 device=x.device
             ).repeat(bs, 1)
         else:
-            data_info["aspect_ratio"] = aspect_ratio.to(x.dtype).to(x.device)
+            data_info["aspect_ratio"] = aspect_ratio.to(dtype=x.dtype, device=x.device)
 
         ## Still accepts the input w/o that dim but returns garbage
         if len(context.shape) == 3:

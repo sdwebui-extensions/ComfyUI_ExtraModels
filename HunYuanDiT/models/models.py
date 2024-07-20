@@ -169,6 +169,8 @@ class HunYuanDiT(nn.Module):
             num_heads=16,
             mlp_ratio=4.0,
             log_fn=print,
+            cond_style=True,
+            cond_res=True,
             **kwargs,
     ):
         super().__init__()
@@ -187,6 +189,8 @@ class HunYuanDiT(nn.Module):
         self.text_len = args.text_len
         self.text_len_t5 = args.text_len_t5
         self.norm = args.norm
+        self.cond_res = cond_res
+        self.cond_style = cond_style
 
         use_flash_attn = args.infer_mode == 'fa'
         if use_flash_attn:
@@ -205,11 +209,15 @@ class HunYuanDiT(nn.Module):
         # Attention pooling
         self.pooler = AttentionPool(self.text_len_t5, self.text_states_dim_t5, num_heads=8, output_dim=1024)
 
-        # Here we use a default learned embedder layer for future extension.
-        self.style_embedder = nn.Embedding(1, hidden_size)
 
-        # Image size and crop size conditions
-        self.extra_in_dim = 256 * 6 + hidden_size
+        self.extra_in_dim = 0        
+        if self.cond_res:
+                # Image size and crop size conditions
+                self.extra_in_dim += 256 * 6
+        if self.cond_style:
+                # Here we use a default learned embedder layer for future extension.
+                self.style_embedder = nn.Embedding(1, hidden_size)
+                self.extra_in_dim += hidden_size
 
         # Text embedding for `add`
         self.last_size = input_size
@@ -243,9 +251,6 @@ class HunYuanDiT(nn.Module):
 
         self.final_layer = FinalLayer(hidden_size, hidden_size, patch_size, self.out_channels)
         self.unpatchify_channels = self.out_channels
-
-        # probably not needed when not training?
-        # self.initialize_weights()
 
     def forward_raw(self,
                 x,
@@ -313,16 +318,19 @@ class HunYuanDiT(nn.Module):
         # Build text tokens with pooling
         extra_vec = self.pooler(encoder_hidden_states_t5)
 
-        # Build image meta size tokens
-        image_meta_size = timestep_embedding(image_meta_size.view(-1), 256)   # [B * 6, 256]
-        # if self.args.use_fp16:
-            # image_meta_size = image_meta_size.half()
-        image_meta_size = image_meta_size.view(-1, 6 * 256)
-        extra_vec = torch.cat([extra_vec, image_meta_size], dim=1)  # [B, D + 6 * 256]
+        if self.cond_res:
+                # Build image meta size tokens
+                image_meta_size = timestep_embedding(image_meta_size.view(-1), 256)   # [B * 6, 256]
+                # if self.args.use_fp16:
+                    # image_meta_size = image_meta_size.half()
+        
+                image_meta_size = image_meta_size.view(-1, 6 * 256)
+                extra_vec = torch.cat([extra_vec, image_meta_size], dim=1)  # [B, D + 6 * 256]
 
-        # Build style tokens
-        style_embedding = self.style_embedder(style)
-        extra_vec = torch.cat([extra_vec, style_embedding], dim=1)
+        if self.cond_style:
+                # Build style tokens
+                style_embedding = self.style_embedder(style)
+                extra_vec = torch.cat([extra_vec, style_embedding], dim=1)
 
         # Concatenate all extra vectors
         c = t + self.extra_embedder(extra_vec.to(self.dtype))  # [B, D]
@@ -414,40 +422,6 @@ class HunYuanDiT(nn.Module):
                 return eps
         else:
                 return out
-
-
-    def initialize_weights(self):
-        # Initialize transformer layers:
-        def _basic_init(module):
-            if isinstance(module, nn.Linear):
-                torch.nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-        self.apply(_basic_init)
-
-        # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
-        w = self.x_embedder.proj.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.proj.bias, 0)
-
-        # Initialize label embedding table:
-        nn.init.normal_(self.extra_embedder[0].weight, std=0.02)
-        nn.init.normal_(self.extra_embedder[2].weight, std=0.02)
-
-        # Initialize timestep embedding MLP:
-        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
-
-        # Zero-out adaLN modulation layers in HunYuanDiT blocks:
-        for block in self.blocks:
-            nn.init.constant_(block.default_modulation[-1].weight, 0)
-            nn.init.constant_(block.default_modulation[-1].bias, 0)
-
-        # Zero-out output layers:
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.final_layer.linear.weight, 0)
-        nn.init.constant_(self.final_layer.linear.bias, 0)
 
     def unpatchify(self, x, h, w):
         """
